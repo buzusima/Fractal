@@ -13,7 +13,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Tuple
 import logging
-from src.strategies.fractal_rsi import FractalRSIStrategy
+from dataclasses import dataclass, field
 from enum import Enum
 import json
 import queue
@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 import time
 import logging
 from typing import Dict, List, Optional, Tuple
-from src.strategies.fractal_rsi import FractalRSIStrategy
+from dataclasses import dataclass, field
 
 @dataclass
 class TradingConfig:
@@ -138,9 +138,32 @@ class SymbolInfo:
     expiration_mode: int = 0
 
 class XAUUSDTradingCore:
-    # Initialize trading strategy
-    self.strategy = FractalRSIStrategy(config.to_dict() if config else {})
-    self.strategy.symbol = self.config.symbol
+    def __init__(self, config: TradingConfig = None):
+        self.config = config or TradingConfig()
+        
+        # Account and symbol validation
+        self.account_info = AccountInfo()
+        self.symbol_info = SymbolInfo()
+        self.is_connected = False
+        self.is_validated = False
+        
+        # Internal tracking
+        self.positions = {}
+        self.recovery_levels = {}
+        self.last_signals = {}
+        self.is_trading = False
+        
+        # Performance tracking
+        self.daily_pnl = 0.0
+        self.total_trades = 0
+        self.winning_trades = 0
+        
+        # Point calculation for different brokers
+        self.point_multiplier = 1.0  # Will be calculated based on broker
+        
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)
+        self.logger = logging.getLogger(__name__)
     
     def initialize_mt5(self) -> bool:
         """Enhanced MT5 initialization with full validation"""
@@ -898,27 +921,63 @@ class XAUUSDTradingCore:
             return True  # Default to open if error
     
     def analyze_entry_signals(self) -> Dict:
-        """Analyze entry signals using strategy pattern"""
+        """Analyze entry signals based on Fractal + RSI with validation"""
         if not self.is_connected:
             return {"error": "MT5 not connected"}
         
         try:
-            # Update strategy config with current settings
-            self.strategy.config = self.config.to_dict()
-            self.strategy.symbol = self.config.symbol
-            self.strategy.rsi_up = self.config.rsi_up
-            self.strategy.rsi_down = self.config.rsi_down
-            self.strategy.rsi_period = self.config.rsi_period
-            self.strategy.fractal_period = self.config.fractal_period
+            data = self.get_market_data()
+            if data is None or len(data) < 50:
+                return {"error": "Insufficient market data", "bars": len(data) if data is not None else 0}
             
-            # Use strategy to analyze signals
-            signals = self.strategy.analyze()
+            # Calculate indicators
+            rsi = self.calculate_rsi(data)
+            fractal_up, fractal_down = self.find_fractals(data)
+            
+            if rsi.empty or fractal_up.empty or fractal_down.empty:
+                return {"error": "Indicator calculation failed"}
+            
+            current_rsi = rsi.iloc[-1]
+            
+            # Check for recent fractals (within last N bars)
+            lookback = self.config.fractal_period
+            latest_fractal_up = fractal_up.iloc[-lookback:].any()
+            latest_fractal_down = fractal_down.iloc[-lookback:].any()
+            
+            signals = {}
+            
+            # BUY Signal: Fractal Down + RSI > RSI_UP
+            if latest_fractal_down and current_rsi > self.config.rsi_up:
+                if self.config.trading_direction in [0, 1]:  # BOTH or BUY_ONLY
+                    signals["BUY"] = {
+                        "rsi": current_rsi,
+                        "rsi_threshold": self.config.rsi_up,
+                        "fractal_down": True,
+                        "strength": min(100, (current_rsi - self.config.rsi_up) * 2),
+                        "timestamp": datetime.now()
+                    }
+            
+            # SELL Signal: Fractal Up + RSI < RSI_DOWN
+            if latest_fractal_up and current_rsi < self.config.rsi_down:
+                if self.config.trading_direction in [0, 2]:  # BOTH or SELL_ONLY
+                    signals["SELL"] = {
+                        "rsi": current_rsi,
+                        "rsi_threshold": self.config.rsi_down,
+                        "fractal_up": True,
+                        "strength": min(100, (self.config.rsi_down - current_rsi) * 2),
+                        "timestamp": datetime.now()
+                    }
+            
+            # Add current market info
+            signals["market_info"] = {
+                "current_rsi": current_rsi,
+                "spread": self.get_current_spread(),
+                "price": data['close'].iloc[-1],
+                "time": data['time'].iloc[-1],
+                "bars_analyzed": len(data)
+            }
             
             return signals
-            
-        except Exception as e:
-            self.logger.error(f"Signal analysis error: {e}")
-            return {"error": f"Signal analysis failed: {e}"}
             
         except Exception as e:
             self.logger.error(f"Signal analysis error: {e}")
@@ -946,7 +1005,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Tuple
 import logging
-from src.strategies.fractal_rsi import FractalRSIStrategy
+from dataclasses import dataclass
 from enum import Enum
 import json
 import queue
@@ -1028,12 +1087,89 @@ class ThreadSafeQueue:
         return self.queue.empty()
 
 class StrategyEngine:
-    # # Initialize trading strategy
-    # self.strategy = FractalRSIStrategy(config.to_dict() if config else {})
-    # self.strategy.symbol = self.config.symbol
-    
-    # # Initialize connection monitoring
-    # self._setup_connection_monitoring()
+    def __init__(self, config: TradingConfig = None):
+        # Initialize components
+        self.config = config or TradingConfig()
+        self.trading_core = XAUUSDTradingCore(self.config)
+        self.position_manager = PositionManager(self.config)
+        self.order_executor = OrderExecutor(self.config, self.position_manager)
+        self.risk_manager = RiskManager(self.config, self.position_manager)
+        
+        # Engine state with thread safety
+        self.state = EngineState.STOPPED
+        self.state_lock = threading.RLock()
+        self.start_time = None
+        self.last_update = None
+        self.running = False
+        
+        # Connection health monitoring
+        self.connection_health = ConnectionHealth()
+        self.connection_check_interval = 30.0  # seconds
+        self.max_consecutive_failures = 3
+        self.reconnection_delay = 5.0  # seconds
+        
+        # Threading with thread pool
+        self.main_thread = None
+        self.connection_monitor_thread = None
+        self.thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="EA_")
+        
+        # Thread-safe queues for different update types
+        self.ui_update_queue = ThreadSafeQueue(100)
+        self.trade_event_queue = ThreadSafeQueue(50)
+        self.error_queue = ThreadSafeQueue(50)
+        
+        # Update intervals
+        self.update_interval = 1.0  # seconds
+        self.signal_check_interval = 5.0  # seconds
+        self.position_update_interval = 2.0  # seconds
+        self.risk_update_interval = 10.0  # seconds
+        
+        # Timing tracking
+        self.last_signal_check = None
+        self.last_position_update = None
+        self.last_risk_update = None
+        
+        # Event handlers with thread safety
+        self.event_handlers = {
+            'on_trade_opened': [],
+            'on_trade_closed': [],
+            'on_signal_detected': [],
+            'on_risk_alert': [],
+            'on_error': [],
+            'on_state_changed': [],
+            'on_connection_status': []
+        }
+        self.event_handlers_lock = threading.RLock()
+        
+        # Performance tracking
+        self.engine_stats = {
+            'signals_generated': 0,
+            'trades_executed': 0,
+            'trades_closed': 0,
+            'recovery_triggered': 0,
+            'errors_occurred': 0,
+            'reconnections': 0,
+            'uptime_seconds': 0,
+            'avg_loop_time': 0.0,
+            'max_loop_time': 0.0
+        }
+        
+        # Signal and trade history
+        self.signal_history = []
+        self.trade_history = []
+        
+        # Recovery testing mode
+        self.recovery_test_mode = False
+        self.recovery_test_results = []
+        
+        # Smart Recovery Enhancement
+        self.recovery_signal_cache = {}  # Store signals for smart recovery
+        self.last_successful_signals = {}  # Track last successful signals by type
+        
+        self.logger = logging.getLogger(__name__)
+        
+        # Initialize connection monitoring
+        self._setup_connection_monitoring()
     
     def _setup_connection_monitoring(self):
         """Setup connection health monitoring"""
