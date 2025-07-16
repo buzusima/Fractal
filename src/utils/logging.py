@@ -209,8 +209,8 @@ class TradingLogManager:
                  log_dir: str = "logs",
                  max_file_size: int = 10 * 1024 * 1024,  # 10MB
                  backup_count: int = 10,
-                 console_level: str = "INFO",
-                 file_level: str = "DEBUG",
+                 console_level: str = "WARNING",
+                 file_level: str = "INFO",
                  json_logs: bool = True,
                  compress_old_logs: bool = True,
                  separate_log_files: bool = True):
@@ -253,7 +253,7 @@ class TradingLogManager:
         
         # Get main logger
         self.logger = logging.getLogger("TradingSystem")
-        self.logger.info("Enhanced logging system initialized")
+        # self.logger.info("Enhanced logging system initialized")  # Reduced
         self.logger.info(f"Log directory: {self.log_dir.absolute()}")
         self.logger.info(f"JSON logs: {self.json_logs}, Compression: {self.compress_old_logs}")
     

@@ -135,7 +135,7 @@ def test_imports():
     for module, classes in import_tests:
         try:
             exec(f"from {module} import {classes}")
-            print(f"OK: {module:<25} - {classes}")
+            # print(f"OK: {module:<25} - {classes}")  # Reduced
             success_count += 1
         except ImportError as e:
             print(f"IMPORT ERROR: {module:<25} - {str(e)}")

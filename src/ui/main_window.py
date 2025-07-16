@@ -1689,7 +1689,7 @@ class XAUUSDTradingUI:
     
     def _on_engine_initialized(self):
         """Called when engine initialization succeeds (UI thread)"""
-        self.logger.info("Engine initialization completed successfully")
+        # self.logger.info("Engine initialization completed successfully")  # Commented for production
         
         # Enable controls
         if hasattr(self, 'start_btn'):
@@ -2471,7 +2471,7 @@ class XAUUSDTradingUI:
     def setup_ui_logging(self):
         """Setup UI logging handler with thread safety"""
         self.logger = logging.getLogger("XAUUSD_EA")
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(logging.WARNING)
         
         # Clear existing handlers
         self.logger.handlers.clear()
@@ -2613,7 +2613,7 @@ class XAUUSDTradingUI:
             self.running = True
             self.update_thread = threading.Thread(target=self.ui_update_loop, daemon=True, name="UI_Updates")
             self.update_thread.start()
-            self.logger.info("UI update thread started")
+            # self.logger.info("UI update thread started")  # Commented for production
     
     def stop_ui_updates(self):
         """Stop UI update thread"""
@@ -2623,7 +2623,7 @@ class XAUUSDTradingUI:
     
     def ui_update_loop(self):
         """Enhanced UI update loop"""
-        self.logger.info("UI update loop started")
+        # self.logger.info("UI update loop started")  # Commented for production
         last_update_time = time.time()
         update_count = 0
         

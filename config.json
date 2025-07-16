@@ -1,23 +1,26 @@
 {
-    "trading": {
-        "symbol": "XAUUSD",
-        "lot_size": 0.01,
-        "rsi_up": 55,
-        "rsi_down": 45,
-        "tp_points": 200,
-        "recovery_price": 100,
-        "martingale": 2.0,
-        "max_recovery": 3
-    },
-    "risk": {
-        "daily_loss_limit": 100.0,
-        "max_drawdown": 10.0,
-        "max_positions": 5,
-        "min_margin_level": 200.0
-    },
-    "system": {
-        "update_interval": 1.0,
-        "log_level": "INFO",
-        "ui_theme": "dark"
-    }
+  "trading": {
+    "symbol": "XAUUSD",
+    "lot_size": 0.01,
+    "rsi_up": 55,
+    "rsi_down": 45,
+    "tp_points": 200,
+    "recovery_price": 100,
+    "martingale": 2.0,
+    "max_recovery": 3
+  },
+  "risk": {
+    "daily_loss_limit": 100.0,
+    "max_drawdown": 10.0,
+    "max_positions": 5,
+    "min_margin_level": 200.0
+  },
+  "system": {
+    "update_interval": 1.0,
+    "log_level": "WARNING",
+    "ui_theme": "dark",
+    "console_log_level": "WARNING",
+    "file_log_level": "INFO",
+    "verbose_logging": false
+  }
 }

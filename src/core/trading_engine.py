@@ -13,7 +13,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Tuple
 import logging
-from dataclasses import dataclass, field
+from src.strategies.fractal_rsi import FractalRSIStrategy
 from enum import Enum
 import json
 import queue
@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 import time
 import logging
 from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
+from src.strategies.fractal_rsi import FractalRSIStrategy
 
 @dataclass
 class TradingConfig:
@@ -70,7 +70,7 @@ class TradingConfig:
     max_drawdown: float = 10.0
     
     # System Settings
-    symbol: str = "XAUUSD.v"
+    symbol: str = "XAUUSD"
     auto_symbol_detect: bool = True
     
     def update_from_dict(self, params: Dict):
@@ -138,36 +138,13 @@ class SymbolInfo:
     expiration_mode: int = 0
 
 class XAUUSDTradingCore:
-    def __init__(self, config: TradingConfig = None):
-        self.config = config or TradingConfig()
-        
-        # Account and symbol validation
-        self.account_info = AccountInfo()
-        self.symbol_info = SymbolInfo()
-        self.is_connected = False
-        self.is_validated = False
-        
-        # Internal tracking
-        self.positions = {}
-        self.recovery_levels = {}
-        self.last_signals = {}
-        self.is_trading = False
-        
-        # Performance tracking
-        self.daily_pnl = 0.0
-        self.total_trades = 0
-        self.winning_trades = 0
-        
-        # Point calculation for different brokers
-        self.point_multiplier = 1.0  # Will be calculated based on broker
-        
-        # Setup logging
-        logging.basicConfig(level=logging.INFO)
-        self.logger = logging.getLogger(__name__)
+    # Initialize trading strategy
+    self.strategy = FractalRSIStrategy(config.to_dict() if config else {})
+    self.strategy.symbol = self.config.symbol
     
     def initialize_mt5(self) -> bool:
         """Enhanced MT5 initialization with full validation"""
-        self.logger.info("Initializing MT5 connection...")
+        self.logger.debug("Initializing MT5 connection...")
         
         # Step 1: Basic MT5 initialization
         if not mt5.initialize():
@@ -175,7 +152,7 @@ class XAUUSDTradingCore:
             self.logger.error(error_msg)
             return False
         
-        self.logger.info("✓ MT5 basic initialization successful")
+        self.logger.info(" MT5 basic initialization successful")
         
         # Step 2: Get and validate account info
         if not self._validate_account():
@@ -196,7 +173,7 @@ class XAUUSDTradingCore:
         self.is_connected = True
         self.is_validated = True
         
-        self.logger.info("🎉 MT5 initialization completed successfully")
+        self.logger.info(" MT5 initialization completed successfully")
         self._log_connection_summary()
         
         return True
@@ -257,27 +234,27 @@ class XAUUSDTradingCore:
             
             # Validation checks
             if not self.account_info.trade_allowed:
-                self.logger.error("❌ Trading not allowed on this account")
+                self.logger.error("ERROR: Trading not allowed on this account")
                 return False
             
             if self.account_info.balance <= 0:
-                self.logger.error("❌ Account balance is zero or negative")
+                self.logger.error("ERROR: Account balance is zero or negative")
                 return False
             
             if self.account_info.leverage <= 0:
-                self.logger.warning("⚠️ Leverage information not available")
+                self.logger.warning("WARNING: Leverage information not available")
             
             # Check margin level
             if self.account_info.margin > 0 and self.account_info.margin_level < 100:
-                self.logger.warning(f"⚠️ Low margin level: {self.account_info.margin_level:.2f}%")
+                self.logger.warning(f"WARNING: Low margin level: {self.account_info.margin_level:.2f}%")
             
-            self.logger.info(f"✓ Account validated: {self.account_info.name} ({self.account_info.server})")
-            self.logger.info(f"  Balance: ${self.account_info.balance:.2f} {self.account_info.currency}")
-            self.logger.info(f"  Equity: ${self.account_info.equity:.2f}")
-            self.logger.info(f"  Free Margin: ${self.account_info.free_margin:.2f}")
-            self.logger.info(f"  Margin Level: {self.account_info.margin_level:.2f}%")
-            self.logger.info(f"  Leverage: 1:{self.account_info.leverage}")
-            self.logger.info(f"  Account Type: {'DEMO' if self.account_info.is_demo else 'LIVE'}")
+            self.logger.info(f" Account validated: {self.account_info.name} ({self.account_info.server})")
+            # self.logger.info(f"  Balance: ${self.account_info.balance:.2f} {self.account_info.currency}")  # Reduced for production
+            # self.logger.info(f"  Equity: ${self.account_info.equity:.2f}")  # Reduced for production
+            # self.logger.info(f"  Free Margin: ${self.account_info.free_margin:.2f}")  # Reduced for production
+            # self.logger.info(f"  Margin Level: {self.account_info.margin_level:.2f}%")  # Reduced for production
+            # self.logger.info(f"  Leverage: 1:{self.account_info.leverage}")  # Reduced for production
+            # self.logger.info(f"  Account Type: {'DEMO' if self.account_info.is_demo else 'LIVE'}")  # Reduced for production
             
             return True
             
@@ -294,20 +271,20 @@ class XAUUSDTradingCore:
                 detected_symbol = self._detect_gold_symbol()
                 if detected_symbol:
                     self.config.symbol = detected_symbol
-                    self.logger.info(f"✓ Auto-detected symbol: {self.config.symbol}")
+                    self.logger.info(f" Auto-detected symbol: {self.config.symbol}")
             
             # Get symbol information with error handling
             symbol = mt5.symbol_info(self.config.symbol)
             if symbol is None:
-                self.logger.error(f"❌ Symbol {self.config.symbol} not found")
+                self.logger.error(f"ERROR: Symbol {self.config.symbol} not found")
                 return False
             
             # Enable symbol if not visible
             if not symbol.visible:
                 if not mt5.symbol_select(self.config.symbol, True):
-                    self.logger.error(f"❌ Failed to select symbol {self.config.symbol}")
+                    self.logger.error(f"ERROR: Failed to select symbol {self.config.symbol}")
                     return False
-                self.logger.info(f"✓ Symbol {self.config.symbol} enabled")
+                self.logger.info(f" Symbol {self.config.symbol} enabled")
             
             # Get filling mode safely - use actual MT5 constants
             filling_mode = getattr(symbol, 'filling_mode', 0)
@@ -346,18 +323,18 @@ class XAUUSDTradingCore:
             
             # Validation checks - use numeric values to avoid constant issues
             if self.symbol_info.trade_mode == 0:  # SYMBOL_TRADE_MODE_DISABLED
-                self.logger.error("❌ Trading disabled for this symbol")
+                self.logger.error("ERROR: Trading disabled for this symbol")
                 return False
             
             if self.symbol_info.volume_min <= 0:
-                self.logger.error("❌ Invalid minimum volume")
+                self.logger.error("ERROR: Invalid minimum volume")
                 return False
             
             # Check if it's really gold (optional warning, not blocking)
             if not self._is_gold_symbol():
-                self.logger.warning(f"⚠️ Symbol {self.config.symbol} may not be gold")
+                self.logger.warning(f"WARNING: Symbol {self.config.symbol} may not be gold")
             
-            self.logger.info(f"✓ Symbol validated: {self.symbol_info.description}")
+            self.logger.info(f" Symbol validated: {self.symbol_info.description}")
             self.logger.info(f"  Digits: {self.symbol_info.digits}, Point: {self.symbol_info.point}")
             self.logger.info(f"  Volume range: {self.symbol_info.volume_min} - {self.symbol_info.volume_max}")
             self.logger.info(f"  Current spread: {self.symbol_info.spread} points")
@@ -402,6 +379,17 @@ class XAUUSDTradingCore:
         except Exception as e:
             self.logger.debug(f"Gold validation error: {e}")
             return True  # Assume valid if validation fails
+            
+            # Basic validation - just check if it looks like gold
+            digits = getattr(symbol_info, 'digits', 0)
+            if digits > 0 and digits <= 5:
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.debug(f"Gold validation error: {e}")
+            return True  # Assume valid if validation fails
     
     def _detect_gold_symbol(self) -> Optional[str]:
         """Auto-detect gold symbol variations with better error handling"""
@@ -411,23 +399,21 @@ class XAUUSDTradingCore:
             "Gold", "GOLD.m", "XAUUSD.a", "XAUUSD.b", "XAUUSD.mt5"
         ]
         
-        self.logger.info("Auto-detecting gold symbol...")
+        self.logger.debug("Auto-detecting gold symbol...")
         
         for symbol in gold_symbols:
             try:
                 symbol_info = mt5.symbol_info(symbol)
                 if symbol_info is not None:
-                    # Additional validation - check if it's really gold
-                    if self._validate_gold_symbol(symbol_info):
-                        self.logger.info(f"✓ Gold symbol found: {symbol}")
+                    # Simple validation - just check if it has reasonable properties
+                    if hasattr(symbol_info, 'name') and symbol_info.name:
+                        self.logger.info(f"Gold symbol found: {symbol}")
                         return symbol
-                    else:
-                        self.logger.debug(f"Symbol {symbol} found but doesn't match gold characteristics")
             except Exception as e:
                 self.logger.debug(f"Error checking symbol {symbol}: {e}")
                 continue
         
-        self.logger.warning("❌ No gold symbol auto-detected, using default")
+        self.logger.warning("No gold symbol auto-detected, using default")
         return None
 
     def _calculate_point_values(self):
@@ -457,7 +443,7 @@ class XAUUSDTradingCore:
             else:
                 self.point_multiplier = 1.0
             
-            self.logger.info(f"✓ Point calculation completed:")
+            self.logger.info(f" Point calculation completed:")
             self.logger.info(f"  Contract size: {contract_size}")
             self.logger.info(f"  Point value: {point_value}")
             self.logger.info(f"  Point value per lot: ${point_value_per_lot}")
@@ -466,45 +452,55 @@ class XAUUSDTradingCore:
             
             # Warn if unusual values
             if not (0.1 <= self.point_multiplier <= 10.0):
-                self.logger.warning(f"⚠️ Unusual point multiplier: {self.point_multiplier}")
+                self.logger.warning(f"WARNING: Unusual point multiplier: {self.point_multiplier}")
             
         except Exception as e:
             self.logger.error(f"Point calculation error: {e}")
             self.point_multiplier = 1.0  # Default fallback
 
     def _detect_gold_symbol(self) -> Optional[str]:
-        """Auto-detect gold symbol variations"""
+        """Auto-detect gold symbol variations with better error handling"""
         gold_symbols = [
             "XAUUSD", "XAUUSD.m", "XAUUSD.raw", "XAUUSD.v", "XAUUSD.c",
             "#XAUUSD", "GOLD", "GOLDUSD", "XAU/USD", "XAUUSD.",
-            "Gold", "GOLD.m", "XAUUSD.a", "XAUUSD.b"
+            "Gold", "GOLD.m", "XAUUSD.a", "XAUUSD.b", "XAUUSD.mt5"
         ]
         
-        self.logger.info("Auto-detecting gold symbol...")
+        self.logger.debug("Auto-detecting gold symbol...")
         
         for symbol in gold_symbols:
             try:
                 symbol_info = mt5.symbol_info(symbol)
                 if symbol_info is not None:
-                    # Additional validation - check if it's really gold
-                    if self._validate_gold_symbol(symbol_info):
-                        self.logger.info(f"✓ Gold symbol found: {symbol}")
+                    # Simple validation - just check if it has reasonable properties
+                    if hasattr(symbol_info, 'name') and symbol_info.name:
+                        self.logger.info(f"Gold symbol found: {symbol}")
                         return symbol
-                    else:
-                        self.logger.debug(f"Symbol {symbol} found but doesn't match gold characteristics")
-            except:
+            except Exception as e:
+                self.logger.debug(f"Error checking symbol {symbol}: {e}")
                 continue
         
-        self.logger.warning("❌ No gold symbol auto-detected, using default")
+        self.logger.warning("No gold symbol auto-detected, using default")
         return None
     
     def _validate_gold_symbol(self, symbol_info) -> bool:
-        """Validate if symbol is actually gold"""
+        """Validate if symbol is actually gold - simplified version"""
         try:
             # Check symbol name contains gold indicators
-            name_lower = symbol_info.name.lower()
+            name_lower = getattr(symbol_info, 'name', '').lower()
             if not any(indicator in name_lower for indicator in ['xau', 'gold']):
                 return False
+            
+            # Basic validation - just check if it looks like gold
+            digits = getattr(symbol_info, 'digits', 0)
+            if digits > 0 and digits <= 5:
+                return True
+            
+            return False
+            
+        except Exception as e:
+            self.logger.debug(f"Gold validation error: {e}")
+            return True  # Assume valid if validation fails
             
             # Check base currency (should be XAU or similar)
             if hasattr(symbol_info, 'currency_base'):
@@ -529,8 +525,17 @@ class XAUUSDTradingCore:
             return False
     
     def _is_gold_symbol(self) -> bool:
-        """Check if current symbol is gold"""
-        return self._validate_gold_symbol(mt5.symbol_info(self.config.symbol))
+        """Check if current symbol is gold - simplified version"""
+        try:
+            symbol_name = self.config.symbol.upper()
+            
+            # Check for gold indicators in symbol name
+            gold_indicators = ['XAU', 'GOLD']
+            return any(indicator in symbol_name for indicator in gold_indicators)
+            
+        except Exception as e:
+            self.logger.error(f"Gold symbol check error: {e}")
+            return True  # Assume it's gold if check fails
     
     def _calculate_point_values(self):
         """Calculate point values and multipliers for this broker"""
@@ -551,7 +556,7 @@ class XAUUSDTradingCore:
             
             self.point_multiplier = actual_point_value / expected_point_value
             
-            self.logger.info(f"✓ Point calculation completed:")
+            self.logger.info(f" Point calculation completed:")
             self.logger.info(f"  Contract size: {self.symbol_info.contract_size}")
             self.logger.info(f"  Point value per lot: ${point_value_per_lot}")
             self.logger.info(f"  Point value per 0.01 lot: ${actual_point_value:.4f}")
@@ -559,7 +564,7 @@ class XAUUSDTradingCore:
             
             # Warn if unusual values
             if not (0.5 <= self.point_multiplier <= 2.0):
-                self.logger.warning(f"⚠️ Unusual point multiplier: {self.point_multiplier}")
+                self.logger.warning(f"WARNING: Unusual point multiplier: {self.point_multiplier}")
             
         except Exception as e:
             self.logger.error(f"Point calculation error: {e}")
@@ -893,63 +898,27 @@ class XAUUSDTradingCore:
             return True  # Default to open if error
     
     def analyze_entry_signals(self) -> Dict:
-        """Analyze entry signals based on Fractal + RSI with validation"""
+        """Analyze entry signals using strategy pattern"""
         if not self.is_connected:
             return {"error": "MT5 not connected"}
         
         try:
-            data = self.get_market_data()
-            if data is None or len(data) < 50:
-                return {"error": "Insufficient market data", "bars": len(data) if data is not None else 0}
+            # Update strategy config with current settings
+            self.strategy.config = self.config.to_dict()
+            self.strategy.symbol = self.config.symbol
+            self.strategy.rsi_up = self.config.rsi_up
+            self.strategy.rsi_down = self.config.rsi_down
+            self.strategy.rsi_period = self.config.rsi_period
+            self.strategy.fractal_period = self.config.fractal_period
             
-            # Calculate indicators
-            rsi = self.calculate_rsi(data)
-            fractal_up, fractal_down = self.find_fractals(data)
-            
-            if rsi.empty or fractal_up.empty or fractal_down.empty:
-                return {"error": "Indicator calculation failed"}
-            
-            current_rsi = rsi.iloc[-1]
-            
-            # Check for recent fractals (within last N bars)
-            lookback = self.config.fractal_period
-            latest_fractal_up = fractal_up.iloc[-lookback:].any()
-            latest_fractal_down = fractal_down.iloc[-lookback:].any()
-            
-            signals = {}
-            
-            # BUY Signal: Fractal Down + RSI > RSI_UP
-            if latest_fractal_down and current_rsi > self.config.rsi_up:
-                if self.config.trading_direction in [0, 1]:  # BOTH or BUY_ONLY
-                    signals["BUY"] = {
-                        "rsi": current_rsi,
-                        "rsi_threshold": self.config.rsi_up,
-                        "fractal_down": True,
-                        "strength": min(100, (current_rsi - self.config.rsi_up) * 2),
-                        "timestamp": datetime.now()
-                    }
-            
-            # SELL Signal: Fractal Up + RSI < RSI_DOWN
-            if latest_fractal_up and current_rsi < self.config.rsi_down:
-                if self.config.trading_direction in [0, 2]:  # BOTH or SELL_ONLY
-                    signals["SELL"] = {
-                        "rsi": current_rsi,
-                        "rsi_threshold": self.config.rsi_down,
-                        "fractal_up": True,
-                        "strength": min(100, (self.config.rsi_down - current_rsi) * 2),
-                        "timestamp": datetime.now()
-                    }
-            
-            # Add current market info
-            signals["market_info"] = {
-                "current_rsi": current_rsi,
-                "spread": self.get_current_spread(),
-                "price": data['close'].iloc[-1],
-                "time": data['time'].iloc[-1],
-                "bars_analyzed": len(data)
-            }
+            # Use strategy to analyze signals
+            signals = self.strategy.analyze()
             
             return signals
+            
+        except Exception as e:
+            self.logger.error(f"Signal analysis error: {e}")
+            return {"error": f"Signal analysis failed: {e}"}
             
         except Exception as e:
             self.logger.error(f"Signal analysis error: {e}")
@@ -977,7 +946,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Callable, Tuple
 import logging
-from dataclasses import dataclass
+from src.strategies.fractal_rsi import FractalRSIStrategy
 from enum import Enum
 import json
 import queue
@@ -1059,89 +1028,12 @@ class ThreadSafeQueue:
         return self.queue.empty()
 
 class StrategyEngine:
-    def __init__(self, config: TradingConfig = None):
-        # Initialize components
-        self.config = config or TradingConfig()
-        self.trading_core = XAUUSDTradingCore(self.config)
-        self.position_manager = PositionManager(self.config)
-        self.order_executor = OrderExecutor(self.config, self.position_manager)
-        self.risk_manager = RiskManager(self.config, self.position_manager)
-        
-        # Engine state with thread safety
-        self.state = EngineState.STOPPED
-        self.state_lock = threading.RLock()
-        self.start_time = None
-        self.last_update = None
-        self.running = False
-        
-        # Connection health monitoring
-        self.connection_health = ConnectionHealth()
-        self.connection_check_interval = 30.0  # seconds
-        self.max_consecutive_failures = 3
-        self.reconnection_delay = 5.0  # seconds
-        
-        # Threading with thread pool
-        self.main_thread = None
-        self.connection_monitor_thread = None
-        self.thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="EA_")
-        
-        # Thread-safe queues for different update types
-        self.ui_update_queue = ThreadSafeQueue(100)
-        self.trade_event_queue = ThreadSafeQueue(50)
-        self.error_queue = ThreadSafeQueue(50)
-        
-        # Update intervals
-        self.update_interval = 1.0  # seconds
-        self.signal_check_interval = 5.0  # seconds
-        self.position_update_interval = 2.0  # seconds
-        self.risk_update_interval = 10.0  # seconds
-        
-        # Timing tracking
-        self.last_signal_check = None
-        self.last_position_update = None
-        self.last_risk_update = None
-        
-        # Event handlers with thread safety
-        self.event_handlers = {
-            'on_trade_opened': [],
-            'on_trade_closed': [],
-            'on_signal_detected': [],
-            'on_risk_alert': [],
-            'on_error': [],
-            'on_state_changed': [],
-            'on_connection_status': []
-        }
-        self.event_handlers_lock = threading.RLock()
-        
-        # Performance tracking
-        self.engine_stats = {
-            'signals_generated': 0,
-            'trades_executed': 0,
-            'trades_closed': 0,
-            'recovery_triggered': 0,
-            'errors_occurred': 0,
-            'reconnections': 0,
-            'uptime_seconds': 0,
-            'avg_loop_time': 0.0,
-            'max_loop_time': 0.0
-        }
-        
-        # Signal and trade history
-        self.signal_history = []
-        self.trade_history = []
-        
-        # Recovery testing mode
-        self.recovery_test_mode = False
-        self.recovery_test_results = []
-        
-        # Smart Recovery Enhancement
-        self.recovery_signal_cache = {}  # Store signals for smart recovery
-        self.last_successful_signals = {}  # Track last successful signals by type
-        
-        self.logger = logging.getLogger(__name__)
-        
-        # Initialize connection monitoring
-        self._setup_connection_monitoring()
+    # # Initialize trading strategy
+    # self.strategy = FractalRSIStrategy(config.to_dict() if config else {})
+    # self.strategy.symbol = self.config.symbol
+    
+    # # Initialize connection monitoring
+    # self._setup_connection_monitoring()
     
     def _setup_connection_monitoring(self):
         """Setup connection health monitoring"""
@@ -1151,7 +1043,7 @@ class StrategyEngine:
             # Test initial connection
             self._check_connection_health()
             
-            self.logger.info("✓ Connection monitoring initialized")
+            self.logger.info(" Connection monitoring initialized")
             
         except Exception as e:
             self.logger.error(f"Connection monitoring setup error: {e}")
@@ -1164,7 +1056,7 @@ class StrategyEngine:
                     self.logger.warning("Engine already running or starting")
                     return True
                 
-                self.logger.info("🚀 Starting XAUUSD Trading Engine...")
+                self.logger.info(" Starting XAUUSD Trading Engine...")
                 self.state = EngineState.STARTING
                 self._notify_state_change()
             
@@ -1210,7 +1102,7 @@ class StrategyEngine:
         """Initialize MT5 with retry logic"""
         for attempt in range(max_retries):
             try:
-                self.logger.info(f"MT5 initialization attempt {attempt + 1}/{max_retries}")
+                pass  # Reduced logging
                 
                 if self.trading_core.initialize_mt5():
                     self.connection_health.is_connected = True
@@ -1219,7 +1111,7 @@ class StrategyEngine:
                     self.logger.info("✅ MT5 initialized successfully")
                     return True
                 else:
-                    self.logger.warning(f"❌ MT5 initialization failed (attempt {attempt + 1})")
+                    self.logger.warning(f"ERROR: MT5 initialization failed (attempt {attempt + 1})")
                     
             except Exception as e:
                 self.logger.error(f"MT5 initialization error: {e}")
@@ -1332,7 +1224,7 @@ class StrategyEngine:
                 self.state = EngineState.RECONNECTING
                 self._notify_state_change()
             
-            self.logger.warning("🔄 MT5 disconnected, attempting reconnection...")
+            self.logger.warning(" MT5 disconnected, attempting reconnection...")
             
             # Attempt reconnection
             reconnection_successful = False
@@ -1374,7 +1266,7 @@ class StrategyEngine:
                 
             else:
                 # Reconnection failed
-                self.logger.error("❌ All reconnection attempts failed")
+                self.logger.error("ERROR: All reconnection attempts failed")
                 self._notify_connection_status("failed")
                 
                 with self.state_lock:
@@ -1539,7 +1431,7 @@ class StrategyEngine:
     
     def _main_loop(self):
         """Enhanced main trading loop with timing optimization"""
-        self.logger.info("🔄 Main trading loop started")
+        self.logger.info(" Main trading loop started")
         
         while self.running:
             loop_start = time.time()
@@ -1795,9 +1687,9 @@ class StrategyEngine:
                         
                         if recovery_result.success:
                             self.engine_stats['recovery_triggered'] += 1
-                            self.logger.info(f"✓ Recovery order executed for position {ticket}")
+                            self.logger.info(f" Recovery order executed for position {ticket}")
                         else:
-                            self.logger.warning(f"✗ Recovery failed for position {ticket}: {recovery_result.error_msg}")
+                            self.logger.warning(f" Recovery failed for position {ticket}: {recovery_result.error_msg}")
                             
         except Exception as e:
             self.logger.error(f"Recovery check error: {e}")
@@ -1828,7 +1720,7 @@ class StrategyEngine:
             if signal_type == "SELL" and rsi_value > self.config.rsi_down:
                 return False
             
-            self.logger.info(f"✓ Smart recovery signal validated for {signal_type}: RSI={rsi_value:.1f}, Strength={cached_signal['strength']:.1f}")
+            self.logger.info(f" Smart recovery signal validated for {signal_type}: RSI={rsi_value:.1f}, Strength={cached_signal['strength']:.1f}")
             return True
             
         except Exception as e:
@@ -1960,7 +1852,7 @@ class StrategyEngine:
                 self.logger.error("Invalid daily loss limit")
                 return False
             
-            self.logger.info("✓ Configuration validation passed")
+            self.logger.info(" Configuration validation passed")
             return True
             
         except Exception as e:
