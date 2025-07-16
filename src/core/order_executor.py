@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
-from trading_core import TradingConfig
-from position_manager import PositionManager, Position
+from .trading_engine import TradingConfig
+from .position_manager import PositionManager, Position
 
 class OrderType(Enum):
     MARKET_BUY = 0

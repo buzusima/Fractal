@@ -7,9 +7,9 @@ from dataclasses import dataclass, field
 import logging
 import json
 from enum import Enum
-from trading_core import TradingConfig
-from position_manager import PositionManager
-from order_executor import OrderExecutor
+from .trading_engine import TradingConfig
+from .position_manager import PositionManager
+from .order_executor import OrderExecutor
 
 class RiskLevel(Enum):
     LOW = "low"
